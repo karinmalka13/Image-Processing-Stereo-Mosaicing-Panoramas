@@ -151,19 +151,14 @@ def my_sift_detect_and_compute(frame):
         gray = 0.299 * frame[:,:,0] + 0.587 * frame[:,:,1] + 0.114 * frame[:,:,2]
     else:
         gray = frame
-    
-    # הקטנה פי 2
-    h, w = gray.shape
-    # עובדים על תמונה מוקטנת
+        h, w = gray.shape
     small_gray = cv2.resize(gray.astype(np.float32), (w // 2, h // 2))
     
-    # שולחים את המוקטנת לחישובים
     dog = create_dog_space(small_gray)
     kps_raw = find_keypoints(dog)
     pts, descriptors = extract_sift_descriptors(dog, kps_raw)
 
     
-    # מכפילים את הקואורדינטות פי 2 כדי שיתאימו לפריים המקורי
     pts = pts * 2
     
     return pts, descriptors
@@ -285,7 +280,6 @@ def build_panorama_at_angle(frames, shifts, x_ratio):
 def build_all_panoramas(frames, shifts, n_out_frames):
     h, w, c = frames[0].shape
     
-    # חישוב גדלים (כמו קודם)
     y_positions = [0]
     cum_dy = 0
     for _, dy in shifts:
@@ -298,8 +292,6 @@ def build_all_panoramas(frames, shifts, n_out_frames):
     canvas_w = int(total_dx) + w + 100
     canvas_h = int(h + max_dy - min_dy) + 100
     
-    # הכנת רשימה של 10 קנבסים ו-10 מסכות משקל
-    # שימי לב: weight_masks עם ערוץ 1 בלבד לחיסכון בזיכרון
     canvases = [np.zeros((canvas_h, canvas_w, 3), dtype=np.float32) for _ in range(n_out_frames)]
     weight_masks = [np.zeros((canvas_h, canvas_w, 1), dtype=np.float32) for _ in range(n_out_frames)]
     
@@ -309,24 +301,20 @@ def build_all_panoramas(frames, shifts, n_out_frames):
     global_y_offset = abs(min_dy) + 50
     margin = 5 
 
-    #  לולאה ראשית אחת על הפריימים 
     for i, frame in enumerate(frames[:-1]):
         dx = abs(shifts[i][0])
         if abs(dx) < 0.1: dx = 2.0 
 
         strip_width = int(dx + 2 * margin)
-        # חישוב גבולות ה-Strip בפריים המקורי
         safe_zone_start = strip_width // 2
         safe_zone_end = w - (strip_width // 2)
         
-        # הכנת נתונים לחישוב המיקום
         start_col_base = safe_zone_start 
         span = safe_zone_end - safe_zone_start
         
         target_x = int(current_x)
         paste_y = int(global_y_offset - y_positions[i])
         
-        #  לולאה פנימית קטנה על 10 הפנורמות 
         for j, ratio in enumerate(x_ratios):
             cut_center = int(start_col_base + span * ratio)
             
@@ -334,20 +322,17 @@ def build_all_panoramas(frames, shifts, n_out_frames):
             s_start = max(0, s_start_col)
             s_end = min(w, s_start_col + strip_width)
             
-            # חיתוך ה-Strip
             strip = frame[:, s_start:s_end].astype(np.float32)
             s_h, s_w, _ = strip.shape
             
             if s_w <= 0: continue
 
-            # יצירת מסכה מקומית (1 channel)
             mask = np.ones((s_h, s_w, 1), dtype=np.float32)
             if s_w > 2 * margin:
                 fade = np.linspace(0, 1, margin).astype(np.float32)
                 mask[:, :margin, 0] = fade[None, :]
                 mask[:, -margin:, 0] = fade[::-1][None, :]
             
-            # חישוב מיקום ההדבקה
             y_start, y_end = max(0, paste_y), min(paste_y + s_h, canvas_h)
             x_start, x_end = max(0, target_x), min(target_x + s_w, canvas_w)
             
@@ -356,20 +341,17 @@ def build_all_panoramas(frames, shifts, n_out_frames):
             if act_h > 0 and act_w > 0:
                 s_y, s_x = y_start - paste_y, x_start - target_x
                 
-                # הדבקה לקנבס המתאים ברשימה
                 canvases[j][y_start:y_end, x_start:x_end] += strip[s_y:s_y+act_h, s_x:s_x+act_w] * mask[s_y:s_y+act_h, s_x:s_x+act_w]
                 weight_masks[j][y_start:y_end, x_start:x_end] += mask[s_y:s_y+act_h, s_x:s_x+act_w]
 
         current_x += dx
 
-    #  נרמול וסגירה סופית לכל הפנורמות 
     final_panos = []
     final_width = int(current_x)
     
     for k in range(n_out_frames):
         w_mask = weight_masks[k]
         w_mask[w_mask == 0] = 1.0
-        # חלוקה (Broadcasting עובד אוטומטית כי ה-mask הוא ערוץ 1)
         pano = np.clip(canvases[k] / w_mask, 0, 255).astype(np.uint8)
         pano = pano[:, :final_width]
         final_panos.append(pano)
@@ -459,7 +441,6 @@ def generate_panorama(input_frames_path, n_out_frames=10):
     print(f"Loaded {len(frames)} frames. Calculating shifts...")
     shifts = calculate_all_shifts(frames)
 
-    # בניית כל הפנורמות במכה אחת 
     print(f"Generating {n_out_frames} panoramas simultaneously...")
     raw_panoramas = build_all_panoramas(frames, shifts, n_out_frames)
     
@@ -470,7 +451,6 @@ def generate_panorama(input_frames_path, n_out_frames=10):
     print("Aligning and converting to PIL...")
     for i, pano_numpy in enumerate(raw_panoramas):
         ratio = x_ratios[i]
-        # כאן משתמשים בפונקציית הקרופ הקיימת 
         pano_aligned = crop_for_alignment(pano_numpy, ratio, frame_width)
         pil_img = Image.fromarray(pano_aligned)
         pil_results.append(pil_img)
@@ -527,7 +507,7 @@ def save_panoramas_to_video(pil_images, output_path, fps=5):
 
 
 def main():
-    input_video_path = r"C:\Users\ASUS\Documents\University\image_processing\ex4\viewpoint_input.mp4"      
+    input_video_path = r"C:\Users\ASUS\Documents\University\image_processing\project\viewpoint_input.mp4"      
     frames_dir = "frames"              
     output_video_name = "evening___.mp4"   
     
